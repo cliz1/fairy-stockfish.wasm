@@ -1259,6 +1259,19 @@ bool Position::legal(Move m) const {
       return !(attackers_to(ksq, occupied, ~us) & occupied);
   }
 
+    // Swap moves: check that our king is not left in check after the swap
+    if (type_of(m) == SWAP && count<KING>(us))
+    {
+        Piece friendly = piece_on(to);
+        // After swap: wizard on 'to', friendly on 'from'
+        // King square: if swapping with king, king moves to 'from'
+        Square ksq = (type_of(friendly) == KING) ? from : square<KING>(us);
+        // Occupied bitboard after swap: same squares occupied, just different pieces
+        // (no squares become empty or filled, just pieces exchange)
+        Bitboard occupied = pieces(); // same squares, pieces just swapped
+        return !(attackers_to(ksq, occupied, ~us) & occupied);
+    }
+
   // Castling moves generation does not check if the castling path is clear of
   // enemy attacks, it is delayed at a later time: now!
   if (type_of(m) == CASTLING)
@@ -1830,17 +1843,43 @@ void Position::do_move(Move m, StateInfo& newSt, bool givesCheck) {
           }
       }
   }
-  else if (type_of(m) != CASTLING)
-  {
-      if (Eval::useNNUE)
-      {
-          dp.piece[0] = pc;
-          dp.from[0] = from;
-          dp.to[0] = to;
-      }
+    else if (type_of(m) != CASTLING)
+    {
+    if (type_of(m) == SWAP)
+    {
+        Piece friendly = piece_on(to);
+        if (Eval::useNNUE)
+        {
+            dp.dirty_num = 2;
+            dp.piece[0] = pc;
+            dp.from[0] = from;
+            dp.to[0] = to;
+            dp.piece[1] = friendly;
+            dp.from[1] = to;
+            dp.to[1] = from;
+            dp.handPiece[0] = NO_PIECE;
+            dp.handPiece[1] = NO_PIECE;
+        }
+        // Wizard hash already applied above, just add friendly piece hash
+        k ^= Zobrist::psq[friendly][to] ^ Zobrist::psq[friendly][from];
+        // Move both pieces
+        remove_piece(from);
+        remove_piece(to);
+        put_piece(pc, to);
+        put_piece(friendly, from);
+    }
+    else
+    {
+        if (Eval::useNNUE)
+        {
+            dp.piece[0] = pc;
+            dp.from[0] = from;
+            dp.to[0] = to;
+        }
+        move_piece(from, to);
+    }
+    }
 
-      move_piece(from, to);
-  }
 
   // If the moving piece is a pawn do some special extra work
   if (type_of(pc) == PAWN)
@@ -2256,6 +2295,16 @@ void Position::undo_move(Move m) {
   {
       if (type_of(m) == DROP)
           undrop_piece(make_piece(us, in_hand_piece_type(m)), to); // Remove the dropped piece
+    else if (type_of(m) == SWAP)
+    {
+        // Swap is its own inverse — just swap back
+        Piece wizard = piece_on(to);
+        Piece friendly = piece_on(from);  // friendly went to 'from' during do_move
+        remove_piece(to);
+        remove_piece(from);
+        put_piece(wizard, from);
+        put_piece(friendly, to);
+    }
       else
           move_piece(to, from); // Put the piece back at the source square
 

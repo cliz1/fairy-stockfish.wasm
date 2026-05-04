@@ -470,6 +470,29 @@ namespace {
                     moveList = make_move_and_gating<CASTLING>(pos, moveList, Us,ksq, pos.castling_rook_square(cr));
     }
 
+    // Wizard swap moves
+    {
+        std::string ptc = pos.piece_to_char();
+        std::size_t widx = ptc.find('W');
+        if (widx != std::string::npos) {
+            Piece white_wizard = Piece(widx);
+            Piece black_wizard = Piece(ptc.find('w'));
+            Piece our_wizard = (Us == WHITE) ? white_wizard : black_wizard;
+            Bitboard wizards = pos.pieces(Us);
+            while (wizards) {
+                Square from = pop_lsb(wizards);
+                if (pos.piece_on(from) != our_wizard)
+                    continue;
+                Bitboard attacks = pos.attacks_from(Us, type_of(our_wizard), from);
+                Bitboard quiets  = pos.moves_from(Us, type_of(our_wizard), from);
+                Bitboard reachable = attacks | quiets;
+                Bitboard swapTargets = reachable & pos.pieces(Us) & ~square_bb(from);
+                while (swapTargets)
+                    *moveList++ = make<SWAP>(from, pop_lsb(swapTargets));
+            }
+        }
+    }
+
     return moveList;
   }
 
