@@ -271,6 +271,7 @@ enum MoveType : int {
   PIECE_DEMOTION     = 6 << (2 * SQUARE_BITS),
   SPECIAL            = 7 << (2 * SQUARE_BITS),
   SWAP               = 8 << (2 * SQUARE_BITS),
+  ARCHER_SHOT = 9 << (2 * SQUARE_BITS),
 };
 
 constexpr int MOVE_TYPE_BITS = 4;
@@ -814,6 +815,15 @@ inline PieceType gating_type(Move m) {
 
 inline Square gating_square(Move m) {
   return Square((m >> (2 * SQUARE_BITS + MOVE_TYPE_BITS + PIECE_TYPE_BITS)) & SQUARE_BIT_MASK);
+}
+
+inline Move make_archer_shot(Square from, Square target) {
+    return Move((target << (2 * SQUARE_BITS + MOVE_TYPE_BITS + PIECE_TYPE_BITS)) 
+                + ARCHER_SHOT + (from << SQUARE_BITS) + from);
+}
+
+inline Square archer_target(Move m) {
+    return Square((m >> (2 * SQUARE_BITS + MOVE_TYPE_BITS + PIECE_TYPE_BITS)) & SQUARE_BIT_MASK);
 }
 
 inline bool is_gating(Move m) {

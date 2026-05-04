@@ -1272,6 +1272,17 @@ bool Position::legal(Move m) const {
         return !(attackers_to(ksq, occupied, ~us) & occupied);
     }
 
+    // Archer shot legality: removing target must not expose our king to check
+    if (type_of(m) == ARCHER_SHOT && count<KING>(us))
+    {
+        Square ksq = square<KING>(us);
+        Square target = archer_target(m);
+        // Archer stays put, target square becomes empty
+        Bitboard occupied = pieces() ^ square_bb(target);
+        bool result = !(attackers_to(ksq, occupied, ~us) & occupied);
+        return result;
+    }
+
   // Castling moves generation does not check if the castling path is clear of
   // enemy attacks, it is delayed at a later time: now!
   if (type_of(m) == CASTLING)
@@ -1519,6 +1530,7 @@ bool Position::gives_check(Move m) const {
   if ((var->petrifyOnCaptureTypes & type_of(moved_piece(m))) && capture(m))
       return false;
 
+
   // Is there a check by special diagonal moves?
   if (more_than_one(diagonal_lines() & (to | square<KING>(~sideToMove))))
   {
@@ -1559,6 +1571,26 @@ bool Position::gives_check(Move m) const {
 
       return attackers_to(square<KING>(~sideToMove), b) & pieces(sideToMove) & b;
   }
+    case SWAP:
+    {
+        // Wizard swap: check if wizard's new position (to) gives check
+        // or if moving wizard away from 'from' discovers a check
+        Bitboard b = pieces(); // occupied squares unchanged
+        // Direct check from wizard's new position
+        if (check_squares(type_of(moved_piece(m))) & to)
+            return true;
+        // Discovered check from wizard moving away from 'from'
+        return (blockers_for_king(~sideToMove) & from)
+            && attackers_to(square<KING>(~sideToMove), b, sideToMove) & b;
+    }
+    case ARCHER_SHOT:
+    {
+        // Archer stays put, target piece is removed
+        Square target = archer_target(m);
+        Bitboard b = pieces() ^ square_bb(target); // target square becomes empty
+        // Could removing target discover a check?
+        return attackers_to(square<KING>(~sideToMove), b, sideToMove) & b;
+    }
   default: //CASTLING
   {
       // Castling is encoded as 'king captures the rook'
@@ -1620,14 +1652,17 @@ void Position::do_move(Move m, StateInfo& newSt, bool givesCheck) {
   Square from = from_sq(m);
   Square to = to_sq(m);
   Piece pc = moved_piece(m);
-  Piece captured = piece_on(type_of(m) == EN_PASSANT ? capture_square(to) : to);
-  if (to == from)
+  Piece captured = piece_on(type_of(m) == EN_PASSANT ? capture_square(to) 
+                         : type_of(m) == ARCHER_SHOT ? archer_target(m)
+                         : to);
+  if (to == from && type_of(m) != ARCHER_SHOT)
   {
       assert((type_of(m) == PROMOTION && sittuyin_promotion()) || (is_pass(m) && (pass(us) || var->wallOrMove )));
       captured = NO_PIECE;
   }
-  st->capturedpromoted = is_promoted(to);
-  st->unpromotedCapturedPiece = captured ? unpromoted_piece_on(to) : NO_PIECE;
+  Square captureSq = type_of(m) == ARCHER_SHOT ? archer_target(m) : to;
+  st->capturedpromoted = is_promoted(captureSq);
+  st->unpromotedCapturedPiece = captured ? unpromoted_piece_on(captureSq) : NO_PIECE;
   st->pass = is_pass(m);
 
   assert(color_of(pc) == us);
@@ -1649,7 +1684,7 @@ void Position::do_move(Move m, StateInfo& newSt, bool givesCheck) {
       captured = NO_PIECE;
   }
 
-  if (captured)
+  if (captured && type_of(m) != ARCHER_SHOT)
   {
       Square capsq = to;
 
@@ -1843,7 +1878,7 @@ void Position::do_move(Move m, StateInfo& newSt, bool givesCheck) {
           }
       }
   }
-    else if (type_of(m) != CASTLING)
+    else if (type_of(m) != CASTLING && type_of(m) != ARCHER_SHOT)
     {
     if (type_of(m) == SWAP)
     {
@@ -1878,6 +1913,28 @@ void Position::do_move(Move m, StateInfo& newSt, bool givesCheck) {
         }
         move_piece(from, to);
     }
+    }
+
+    else if (type_of(m) == ARCHER_SHOT)
+    {
+        Square target = archer_target(m);
+        Piece targetPiece = piece_on(target);
+        if (Eval::useNNUE)
+        {
+            dp.dirty_num = 1;
+            dp.piece[0] = targetPiece;
+            dp.from[0] = target;
+            dp.to[0] = SQ_NONE;
+            dp.handPiece[0] = NO_PIECE;
+        }
+        k ^= Zobrist::psq[targetPiece][target];
+        st->materialKey ^= Zobrist::psq[targetPiece][pieceCount[targetPiece]];
+        st->nonPawnMaterial[them] -= PieceValue[MG][targetPiece];
+        st->capturedPiece = targetPiece;
+        st->captureSquare = target;
+        st->rule50 = 0;
+        remove_piece(target);
+        // Archer itself doesn't move — no move_piece call
     }
 
 
@@ -2305,13 +2362,17 @@ void Position::undo_move(Move m) {
         put_piece(wizard, from);
         put_piece(friendly, to);
     }
+    else if (type_of(m) == ARCHER_SHOT)
+    {
+        // Archer didn't move — nothing to undo for the moving piece.
+        // The captured piece is restored by the if (st->capturedPiece) block below.
+    }
       else
           move_piece(to, from); // Put the piece back at the source square
 
       if (st->capturedPiece)
       {
-          Square capsq = to;
-
+          Square capsq = type_of(m) == ARCHER_SHOT ? st->captureSquare : to;
           if (type_of(m) == EN_PASSANT)
           {
               capsq = st->captureSquare;

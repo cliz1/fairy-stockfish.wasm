@@ -493,6 +493,50 @@ namespace {
         }
     }
 
+    // Archer ranged captures
+{
+
+    std::string ptc = pos.piece_to_char();
+    std::size_t xidx = ptc.find('X');
+    if (xidx != std::string::npos) {
+        Piece white_archer = Piece(xidx);
+        Piece black_archer = Piece(ptc.find('x'));
+        Piece our_archer = (Us == WHITE) ? white_archer : black_archer;
+        Bitboard archers = pos.pieces(Us);
+        int archer_count = 0;
+        while (archers) {
+            Square from = pop_lsb(archers);
+            if (pos.piece_on(from) != our_archer)
+                continue;
+            archer_count++;
+            // Check all 4 diagonal directions, 2 and 3 squares out
+            for (Direction d : {NORTH_EAST, NORTH_WEST, SOUTH_EAST, SOUTH_WEST}) {
+                for (int dist = 2; dist <= 3; dist++) {
+                    Square target = from;
+                    bool valid = true;
+                    for (int step = 0; step < dist; step++) {
+                        // bounds check
+                        File f = file_of(target);
+                        Rank r = rank_of(target);
+                        if (   (d == NORTH_EAST && (f == FILE_H || r == RANK_8))
+                            || (d == NORTH_WEST && (f == FILE_A || r == RANK_8))
+                            || (d == SOUTH_EAST && (f == FILE_H || r == RANK_1))
+                            || (d == SOUTH_WEST && (f == FILE_A || r == RANK_1))) {
+                            valid = false;
+                            break;
+                        }
+                        target = target + d;
+                    }
+                    if (!valid) break;
+                    // Only generate if target has an enemy piece
+                    if (pos.pieces(~Us) & square_bb(target))
+                        *moveList++ = make_archer_shot(from, target);
+                }
+            }
+        }
+    }
+}
+
     return moveList;
   }
 
