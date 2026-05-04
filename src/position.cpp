@@ -1059,6 +1059,34 @@ bool Position::legal(Move m) const {
   assert(!count<KING>(us) || piece_on(square<KING>(us)) == make_piece(us, KING));
   assert(board_bb() & to);
 
+    // Snare immobilization check
+  {
+      std::string ptc = piece_to_char();
+      std::size_t idx_white = ptc.find('S');
+      std::size_t idx_black = ptc.find('s');
+      Piece white_snare = idx_white != std::string::npos ? Piece(idx_white) : NO_PIECE;
+      Piece black_snare = idx_black != std::string::npos ? Piece(idx_black) : NO_PIECE;
+
+      if (white_snare != NO_PIECE || black_snare != NO_PIECE) {
+          Color them = ~us;
+          Piece enemy_snare = (us == WHITE) ? black_snare : white_snare;
+          Direction forward = (us == WHITE) ? NORTH : SOUTH;
+          File from_file = file_of(from);
+          Rank from_rank = rank_of(from);
+
+          // Check WEST
+          if (from_file > FILE_A && piece_on(from + WEST) == enemy_snare)
+              return false;
+          // Check EAST
+          if (from_file < FILE_H && piece_on(from + EAST) == enemy_snare)
+              return false;
+          // Check forward
+          Rank fwd_rank = (us == WHITE) ? Rank(from_rank + 1) : Rank(from_rank - 1);
+          if (fwd_rank >= RANK_1 && fwd_rank <= RANK_8 && piece_on(from + forward) == enemy_snare)
+              return false;
+      }
+  }
+
   // Illegal checks
   if ((!checking_permitted() || (sittuyin_promotion() && type_of(m) == PROMOTION) || (!drop_checks() && type_of(m) == DROP)) && gives_check(m))
       return false;

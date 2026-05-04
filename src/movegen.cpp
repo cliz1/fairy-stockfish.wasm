@@ -508,20 +508,72 @@ template ExtMove* generate<NON_EVASIONS>(const Position&, ExtMove*);
 
 template<>
 ExtMove* generate<LEGAL>(const Position& pos, ExtMove* moveList) {
-
   if (pos.is_immediate_game_end())
       return moveList;
 
-  ExtMove* cur = moveList;
+  // Get snare piece type for this variant
+  PieceType snare_type = NO_PIECE_TYPE;
+  std::string ptc = pos.piece_to_char();
+  std::size_t idx_white = ptc.find('S');
+  std::size_t idx_black = ptc.find('s');
+// Instead of computing make_piece, just compare Piece directly
+Piece white_snare = idx_white != std::string::npos ? Piece(idx_white) : NO_PIECE;
+Piece black_snare = idx_black != std::string::npos ? Piece(idx_black) : NO_PIECE;
 
+  ExtMove* cur = moveList;
   moveList = pos.checkers() ? generate<EVASIONS    >(pos, moveList)
                             : generate<NON_EVASIONS>(pos, moveList);
-  while (cur != moveList)
-      if (!pos.legal(*cur) || pos.virtual_drop(*cur))
+  while (cur != moveList) {
+      if (!pos.legal(*cur) || pos.virtual_drop(*cur)) {
           *cur = (--moveList)->move;
-      else
-          ++cur;
+          continue;
+      }
 
+      // Snare immobilization check
+      if (white_snare != NO_PIECE || black_snare != NO_PIECE) {
+          Square from = from_sq(*cur);
+          Color us = color_of(pos.piece_on(from));
+          Color them = ~us;
+          Piece enemy_snare = (us == WHITE) ? black_snare : white_snare;
+          Direction forward = (us == WHITE) ? NORTH : SOUTH;
+          File from_file = file_of(from);
+          Rank from_rank = rank_of(from);
+
+          bool immobilized = false;
+
+          if (enemy_snare!= NO_PIECE){
+
+          // Check WEST (left)
+          if (from_file > FILE_A) {
+              Square adj = from + WEST;
+              if (pos.piece_on(adj) == enemy_snare)
+                immobilized = true;
+          }
+          // Check EAST (right)
+          if (!immobilized && from_file < FILE_H) {
+              Square adj = from + EAST;
+              if (pos.piece_on(adj) == enemy_snare)
+                immobilized = true;
+          }
+          // Check forward
+          if (!immobilized) {
+              Rank fwd_rank = (us == WHITE) ? Rank(from_rank + 1) : Rank(from_rank - 1);
+              if (fwd_rank >= RANK_1 && fwd_rank <= RANK_8) {
+                  Square adj = from + forward;
+                  if (pos.piece_on(adj) == enemy_snare)
+                    immobilized = true;
+              }
+          }
+        }
+
+          if (immobilized) {
+              *cur = (--moveList)->move;
+              continue;
+          }
+      }
+
+      ++cur;
+  }
   return moveList;
 }
 
