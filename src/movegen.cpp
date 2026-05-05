@@ -560,6 +560,10 @@ namespace {
             Piece black_painter = Piece(ptc.find('y'));
             Piece our_painter   = (Us == WHITE) ? white_painter : black_painter;
 
+            // Royal painter type for back-rank promotion
+            std::size_t oidx = ptc.find('O');
+            PieceType royalPainterType = oidx != std::string::npos ? type_of(Piece(oidx)) : NO_PIECE_TYPE;
+
             Direction forward     = (Us == WHITE) ? NORTH      : SOUTH;
             Direction paintLeft   = (Us == WHITE) ? NORTH_WEST : SOUTH_EAST;
             Direction paintRight  = (Us == WHITE) ? NORTH_EAST : SOUTH_WEST;
@@ -577,9 +581,15 @@ namespace {
                 // --- Forward non-capturing moves ---
                 Square one = from + forward;
                 if (is_ok(one) && pos.empty(one)) {
-                    if (Type != CAPTURES)
-                        *moveList++ = make_move(from, one);
-                    // Initial double push
+                    if (Type != CAPTURES) {
+                        // Back-rank arrival → promote to royal painter
+                        if (royalPainterType != NO_PIECE_TYPE
+                            && relative_rank(Us, one, pos.max_rank()) == pos.max_rank())
+                            *moveList++ = make<PROMOTION>(from, one, royalPainterType);
+                        else
+                            *moveList++ = make_move(from, one);
+                    }
+                    // Initial double push (never reaches back rank directly)
                     if (rank_of(from) == startRank) {
                         Square two = one + forward;
                         if (is_ok(two) && pos.empty(two) && Type != CAPTURES)
@@ -612,6 +622,36 @@ namespace {
                             && type_of(pos.piece_on(epTarget)) != KING)
                             *moveList++ = make<PAINTER_PAINT>(from, target);
                     }
+                }
+            }
+        }
+    }
+
+    // Snare promotion: when snare reaches the back rank it becomes a rolling snare
+    if (Type != CAPTURES)
+    {
+        std::string ptc = pos.piece_to_char();
+        std::size_t sidx = ptc.find('S');
+        std::size_t lidx = ptc.find('L');
+        if (sidx != std::string::npos && lidx != std::string::npos) {
+            Piece white_snare = Piece(sidx);
+            Piece black_snare = Piece(ptc.find('s'));
+            Piece our_snare   = (Us == WHITE) ? white_snare : black_snare;
+            PieceType rollingSnareType = type_of(Piece(lidx));
+
+            Bitboard snares = pos.pieces(Us);
+            while (snares) {
+                Square from = pop_lsb(snares);
+                if (pos.piece_on(from) != our_snare)
+                    continue;
+                // All squares the snare can move to (from its Betza)
+                Bitboard dests = pos.moves_from(Us, type_of(our_snare), from)
+                                 & ~pos.pieces()
+                                 & pos.board_bb();
+                while (dests) {
+                    Square to = pop_lsb(dests);
+                    if (relative_rank(Us, to, pos.max_rank()) == pos.max_rank())
+                        *moveList++ = make<PROMOTION>(from, to, rollingSnareType);
                 }
             }
         }

@@ -1333,6 +1333,19 @@ bool Position::legal(Move m) const {
                 && !empty(to))
                 return false;
         }
+
+        // Snare pieces (char 'S'/'s') must promote to rolling snare on the back rank —
+        // block any NORMAL move that lands there (PROMOTION moves replace them).
+        std::size_t sidx = ptc.find('S');
+        if (sidx != std::string::npos)
+        {
+            PieceType snareType = type_of(Piece(sidx));
+            Rank backRank = (us == WHITE) ? max_rank() : RANK_1;
+            if (type_of(moved_piece(m)) == snareType
+                && type_of(m) == NORMAL
+                && rank_of(to) == backRank)
+                return false;
+        }
     }
 
     // Painter legality: occupied bitboard is unchanged (piece stays on target square,
