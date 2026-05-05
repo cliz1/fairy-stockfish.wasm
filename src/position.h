@@ -56,6 +56,7 @@ struct StateInfo {
   Square castlingKingSquare[COLOR_NB];
   Bitboard wallSquares;
   Bitboard gatesBB[COLOR_NB];
+  Square   wetPaintSquare;   // square of piece painted last ply (SQ_NONE if none)
 
   // Not copied when making a move (will be recomputed anyhow)
   Key        key;

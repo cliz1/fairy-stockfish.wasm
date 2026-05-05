@@ -271,7 +271,8 @@ enum MoveType : int {
   PIECE_DEMOTION     = 6 << (2 * SQUARE_BITS),
   SPECIAL            = 7 << (2 * SQUARE_BITS),
   SWAP               = 8 << (2 * SQUARE_BITS),
-  ARCHER_SHOT = 9 << (2 * SQUARE_BITS),
+  ARCHER_SHOT    = 9 << (2 * SQUARE_BITS),
+  PAINTER_PAINT  = 10 << (2 * SQUARE_BITS),
 };
 
 constexpr int MOVE_TYPE_BITS = 4;

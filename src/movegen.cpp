@@ -537,6 +537,72 @@ namespace {
     }
 }
 
+    // Painter: forward non-capturing moves + diagonal paint moves
+    {
+        std::string ptc = pos.piece_to_char();
+        std::size_t yidx = ptc.find('Y');
+        if (yidx != std::string::npos) {
+            Piece white_painter = Piece(yidx);
+            Piece black_painter = Piece(ptc.find('y'));
+            Piece our_painter   = (Us == WHITE) ? white_painter : black_painter;
+
+            Direction forward     = (Us == WHITE) ? NORTH      : SOUTH;
+            Direction paintLeft   = (Us == WHITE) ? NORTH_WEST : SOUTH_EAST;
+            Direction paintRight  = (Us == WHITE) ? NORTH_EAST : SOUTH_WEST;
+            Rank      startRank   = (Us == WHITE) ? RANK_2     : RANK_7;
+
+            // Wet paint square: the piece here cannot be painted this ply
+            Square wetSq = pos.state()->wetPaintSquare;
+
+            Bitboard painters = pos.pieces(Us);
+            while (painters) {
+                Square from = pop_lsb(painters);
+                if (pos.piece_on(from) != our_painter)
+                    continue;
+
+                // --- Forward non-capturing moves ---
+                Square one = from + forward;
+                if (is_ok(one) && pos.empty(one)) {
+                    if (Type != CAPTURES)
+                        *moveList++ = make_move(from, one);
+                    // Initial double push
+                    if (rank_of(from) == startRank) {
+                        Square two = one + forward;
+                        if (is_ok(two) && pos.empty(two) && Type != CAPTURES)
+                            *moveList++ = make_move(from, two);
+                    }
+                }
+
+                // --- Paint moves (diagonal, like pawn captures) ---
+                for (Direction d : {paintLeft, paintRight}) {
+                    // Guard against file wrap-around
+                    File f = file_of(from);
+                    if (d == NORTH_WEST && f == FILE_A) continue;
+                    if (d == NORTH_EAST && f == FILE_H) continue;
+                    if (d == SOUTH_WEST && f == FILE_A) continue;
+                    if (d == SOUTH_EAST && f == FILE_H) continue;
+                    Square target = from + d;
+                    if (!is_ok(target))
+                        continue;
+
+                    // Normal paint: enemy piece on target (not king, not wet paint)
+                    if ((pos.pieces(~Us) & square_bb(target))
+                        && type_of(pos.piece_on(target)) != KING
+                        && target != wetSq)
+                        *moveList++ = make<PAINTER_PAINT>(from, target);
+
+                    // En passant paint: target is the ep square (empty)
+                    if (pos.ep_squares() & square_bb(target)) {
+                        Square epTarget = pos.capture_square(target);
+                        if (epTarget != wetSq
+                            && type_of(pos.piece_on(epTarget)) != KING)
+                            *moveList++ = make<PAINTER_PAINT>(from, target);
+                    }
+                }
+            }
+        }
+    }
+
     return moveList;
   }
 

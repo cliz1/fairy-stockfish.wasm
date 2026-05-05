@@ -46,6 +46,7 @@ namespace Zobrist {
   Key checks[COLOR_NB][CHECKS_NB];
   Key wall[SQUARE_NB];
   Key endgame[EG_EVAL_NB];
+  Key wetPaint[SQUARE_NB];
 }
 
 
@@ -184,6 +185,9 @@ void Position::init() {
 
   for (Square s = SQ_A1; s <= SQ_MAX; ++s)
       Zobrist::wall[s] = rng.rand<Key>();
+
+  for (Square s = SQ_A1; s <= SQ_MAX; ++s)
+      Zobrist::wetPaint[s] = rng.rand<Key>();
 
   for (int i = NO_EG_EVAL; i < EG_EVAL_NB; ++i)
       Zobrist::endgame[i] = rng.rand<Key>();
@@ -352,6 +356,7 @@ Position& Position::set(const Variant* v, const string& fenStr, bool isChess960,
 
   // 3-4. Skip parsing castling and en passant flags if not present
   st->epSquares = 0;
+  st->wetPaintSquare = SQ_NONE;
   st->castlingKingSquare[WHITE] = st->castlingKingSquare[BLACK] = SQ_NONE;
   if (!isdigit(ss.peek()) && !sfen)
   {
@@ -1283,6 +1288,19 @@ bool Position::legal(Move m) const {
         return result;
     }
 
+    // Painter legality: occupied bitboard is unchanged (piece stays on target square,
+    // just changes color), so our king cannot be exposed. The only check needed is
+    // whether we were already in check and the paint doesn't resolve it.
+    if (type_of(m) == PAINTER_PAINT && count<KING>(us))
+    {
+        Square ksq    = square<KING>(us);
+        Square target = empty(to) ? capture_square(to) : to;
+        // After paint: target is our piece; enemy pieces = pieces(~us) minus target
+        Bitboard occupied    = pieces();
+        Bitboard enemyAfter  = pieces(~us) ^ square_bb(target);
+        return !(attackers_to(ksq, occupied, ~us) & enemyAfter);
+    }
+
   // Castling moves generation does not check if the castling path is clear of
   // enemy attacks, it is delayed at a later time: now!
   if (type_of(m) == CASTLING)
@@ -1331,7 +1349,23 @@ bool Position::legal(Move m) const {
   // If the moving piece is a king, check whether the destination square is
   // attacked by the opponent.
   if (type_of(moved_piece(m)) == KING)
+  {
+      // Painter pieces (char 'Y'/'y') guard their forward-diagonal squares like pawns,
+      // but their Betza is '.' so attackers_to() is blind to them — check manually.
+      std::string ptc = piece_to_char();
+      std::size_t yidx = ptc.find('Y');
+      if (yidx != std::string::npos)
+      {
+          PieceType painterType = type_of(Piece(yidx));
+          Bitboard enemyPainters = pieces(~us, painterType);
+          Bitboard guardedByPainters = (~us == WHITE)
+              ? (shift<NORTH_EAST>(enemyPainters) | shift<NORTH_WEST>(enemyPainters))
+              : (shift<SOUTH_EAST>(enemyPainters) | shift<SOUTH_WEST>(enemyPainters));
+          if (guardedByPainters & square_bb(to))
+              return false;
+      }
       return !attackers_to(to, occupied, ~us);
+  }
 
   // Return early when without king
   if (!count<KING>(us))
@@ -1498,7 +1532,10 @@ bool Position::gives_check(Move m) const {
       janggiCannons ^= to;
 
   // Is there a direct check?
+  // ARCHER_SHOT and PAINTER_PAINT are excluded: the "moving piece" stays at 'from'
+  // and does not land on 'to', so check_squares(moved_piece) & to is meaningless.
   if (type_of(m) != PROMOTION && type_of(m) != PIECE_PROMOTION && type_of(m) != PIECE_DEMOTION && type_of(m) != CASTLING
+      && type_of(m) != ARCHER_SHOT && type_of(m) != PAINTER_PAINT
       && !((var->petrifyOnCaptureTypes & type_of(moved_piece(m))) && capture(m)))
   {
       PieceType pt = type_of(moved_piece(m));
@@ -1517,7 +1554,10 @@ bool Position::gives_check(Move m) const {
   }
 
   // Is there a discovered check?
-  if (  ((type_of(m) != DROP && (blockers_for_king(~sideToMove) & from)) || (non_sliding_riders() & pieces(sideToMove)))
+  // ARCHER_SHOT and PAINTER_PAINT handle all check detection in their switch cases;
+  // neither vacates 'from', so blockers_for_king & from is irrelevant for both.
+  if (  type_of(m) != ARCHER_SHOT && type_of(m) != PAINTER_PAINT
+      && ((type_of(m) != DROP && (blockers_for_king(~sideToMove) & from)) || (non_sliding_riders() & pieces(sideToMove)))
       && attackers_to(square<KING>(~sideToMove), occupied, sideToMove, janggiCannons) & occupied)
       return true;
 
@@ -1591,6 +1631,14 @@ bool Position::gives_check(Move m) const {
         // Could removing target discover a check?
         return attackers_to(square<KING>(~sideToMove), b, sideToMove) & b;
     }
+    case PAINTER_PAINT:
+    {
+        // Painter stays put; target piece becomes ours.
+        Square target = empty(to) ? capture_square(to) : to;
+        Square ksq    = square<KING>(~sideToMove);
+        // The painted piece is now our color — does it attack the enemy king?
+        return bool(attacks_bb(sideToMove, type_of(piece_on(target)), target, pieces()) & ksq);
+    }
   default: //CASTLING
   {
       // Castling is encoded as 'king captures the rook'
@@ -1632,6 +1680,12 @@ void Position::do_move(Move m, StateInfo& newSt, bool givesCheck) {
   newSt.previous = st;
   st = &newSt;
   st->move = m;
+
+  // Clear wet paint from hash (the new state starts with no wet paint;
+  // a PAINTER_PAINT move will set it below)
+  if (st->wetPaintSquare != SQ_NONE)
+      k ^= Zobrist::wetPaint[st->wetPaintSquare];
+  st->wetPaintSquare = SQ_NONE;
 
   // Increment ply counters. In particular, rule50 will be reset to zero later on
   // in case of a capture or a pawn move.
@@ -1684,7 +1738,7 @@ void Position::do_move(Move m, StateInfo& newSt, bool givesCheck) {
       captured = NO_PIECE;
   }
 
-  if (captured && type_of(m) != ARCHER_SHOT)
+  if (captured && type_of(m) != ARCHER_SHOT && type_of(m) != PAINTER_PAINT)
   {
       Square capsq = to;
 
@@ -1878,7 +1932,7 @@ void Position::do_move(Move m, StateInfo& newSt, bool givesCheck) {
           }
       }
   }
-    else if (type_of(m) != CASTLING && type_of(m) != ARCHER_SHOT)
+    else if (type_of(m) != CASTLING && type_of(m) != ARCHER_SHOT && type_of(m) != PAINTER_PAINT)
     {
     if (type_of(m) == SWAP)
     {
@@ -1935,6 +1989,51 @@ void Position::do_move(Move m, StateInfo& newSt, bool givesCheck) {
         st->rule50 = 0;
         remove_piece(target);
         // Archer itself doesn't move — no move_piece call
+    }
+
+    else if (type_of(m) == PAINTER_PAINT)
+    {
+        // The painter stays in place; the target piece changes to our color.
+        // For en passant painting, 'to' is the empty ep square; the actual
+        // piece to paint is at capture_square(to).
+        Square target = empty(to) ? capture_square(to) : to;
+        Piece  originalPiece = piece_on(target);
+        Piece  paintedPiece  = make_piece(us, type_of(originalPiece));
+
+        if (Eval::useNNUE)
+        {
+            dp.dirty_num = 2;
+            dp.piece[0]     = originalPiece;
+            dp.from[0]      = target;
+            dp.to[0]        = SQ_NONE;
+            dp.handPiece[0] = NO_PIECE;
+            dp.piece[1]     = paintedPiece;
+            dp.from[1]      = SQ_NONE;
+            dp.to[1]        = target;
+            dp.handPiece[1] = NO_PIECE;
+        }
+
+        // Update Zobrist: swap piece identity at target square
+        k ^= Zobrist::psq[originalPiece][target] ^ Zobrist::psq[paintedPiece][target];
+
+        // Update material key and non-pawn material
+        remove_piece(target);
+        st->materialKey ^= Zobrist::psq[originalPiece][pieceCount[originalPiece]];
+        if (type_of(originalPiece) != PAWN)
+            st->nonPawnMaterial[them] -= PieceValue[MG][originalPiece];
+
+        put_piece(paintedPiece, target);
+        st->materialKey ^= Zobrist::psq[paintedPiece][pieceCount[paintedPiece] - 1];
+        if (type_of(paintedPiece) != PAWN)
+            st->nonPawnMaterial[us] += PieceValue[MG][paintedPiece];
+
+        // Record wet paint (piece just painted cannot be painted next ply)
+        st->wetPaintSquare = target;
+        k ^= Zobrist::wetPaint[target];
+
+        st->captureSquare = target;
+        st->rule50 = 0;
+        // Painter itself doesn't move
     }
 
 
@@ -2065,7 +2164,7 @@ void Position::do_move(Move m, StateInfo& newSt, bool givesCheck) {
   }
 
   // Set capture piece
-  st->capturedPiece = captured;
+  st->capturedPiece = type_of(m) == PAINTER_PAINT ? NO_PIECE : captured;
 
   // Add gating piece
   if (is_gating(m))
@@ -2276,7 +2375,8 @@ void Position::undo_move(Move m) {
 
   assert(type_of(m) == DROP || empty(from) || type_of(m) == CASTLING || is_gating(m)
          || (type_of(m) == PROMOTION && sittuyin_promotion())
-         || (is_pass(m) && (pass(us) || var->wallOrMove)));
+         || (is_pass(m) && (pass(us) || var->wallOrMove))
+         || type_of(m) == ARCHER_SHOT || type_of(m) == PAINTER_PAINT);
   assert(type_of(st->capturedPiece) != KING);
 
   // Reset wall squares
@@ -2366,6 +2466,16 @@ void Position::undo_move(Move m) {
     {
         // Archer didn't move — nothing to undo for the moving piece.
         // The captured piece is restored by the if (st->capturedPiece) block below.
+    }
+    else if (type_of(m) == PAINTER_PAINT)
+    {
+        // Painter didn't move. Restore the painted piece to its original color.
+        Square target = st->captureSquare;
+        Piece  current = piece_on(target);               // currently our color
+        remove_piece(target);
+        put_piece(make_piece(~us, type_of(current)), target);
+        // capturedPiece is NO_PIECE for painter moves, so the generic
+        // if (st->capturedPiece) block below is a no-op.
     }
       else
           move_piece(to, from); // Put the piece back at the source square
