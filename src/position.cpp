@@ -1288,6 +1288,22 @@ bool Position::legal(Move m) const {
         return result;
     }
 
+    // Painter pieces (char 'Y'/'y') use cfF Betza for attack-table coverage, but
+    // they may never physically move to a diagonal square — only PAINTER_PAINT is legal
+    // for diagonal painter moves.
+    {
+        std::string ptc = piece_to_char();
+        std::size_t yidx = ptc.find('Y');
+        if (yidx != std::string::npos)
+        {
+            PieceType painterType = type_of(Piece(yidx));
+            if (type_of(moved_piece(m)) == painterType
+                && type_of(m) == NORMAL
+                && file_of(from) != file_of(to))
+                return false;
+        }
+    }
+
     // Painter legality: occupied bitboard is unchanged (piece stays on target square,
     // just changes color), so our king cannot be exposed. The only check needed is
     // whether we were already in check and the paint doesn't resolve it.
@@ -1349,23 +1365,7 @@ bool Position::legal(Move m) const {
   // If the moving piece is a king, check whether the destination square is
   // attacked by the opponent.
   if (type_of(moved_piece(m)) == KING)
-  {
-      // Painter pieces (char 'Y'/'y') guard their forward-diagonal squares like pawns,
-      // but their Betza is '.' so attackers_to() is blind to them — check manually.
-      std::string ptc = piece_to_char();
-      std::size_t yidx = ptc.find('Y');
-      if (yidx != std::string::npos)
-      {
-          PieceType painterType = type_of(Piece(yidx));
-          Bitboard enemyPainters = pieces(~us, painterType);
-          Bitboard guardedByPainters = (~us == WHITE)
-              ? (shift<NORTH_EAST>(enemyPainters) | shift<NORTH_WEST>(enemyPainters))
-              : (shift<SOUTH_EAST>(enemyPainters) | shift<SOUTH_WEST>(enemyPainters));
-          if (guardedByPainters & square_bb(to))
-              return false;
-      }
       return !attackers_to(to, occupied, ~us);
-  }
 
   // Return early when without king
   if (!count<KING>(us))
@@ -1534,6 +1534,8 @@ bool Position::gives_check(Move m) const {
   // Is there a direct check?
   // ARCHER_SHOT and PAINTER_PAINT are excluded: the "moving piece" stays at 'from'
   // and does not land on 'to', so check_squares(moved_piece) & to is meaningless.
+  // Painters use cfF Betza and give check like a pawn when they advance adjacent to the
+  // enemy king — this is handled correctly by the ASYMMETRICAL_RIDERS branch below.
   if (type_of(m) != PROMOTION && type_of(m) != PIECE_PROMOTION && type_of(m) != PIECE_DEMOTION && type_of(m) != CASTLING
       && type_of(m) != ARCHER_SHOT && type_of(m) != PAINTER_PAINT
       && !((var->petrifyOnCaptureTypes & type_of(moved_piece(m))) && capture(m)))
@@ -1556,9 +1558,13 @@ bool Position::gives_check(Move m) const {
   // Is there a discovered check?
   // ARCHER_SHOT and PAINTER_PAINT handle all check detection in their switch cases;
   // neither vacates 'from', so blockers_for_king & from is irrelevant for both.
+  // Exclude 'to' from the attacker set: a discovered check is by definition from a piece
+  // other than the one that just moved. Without this, cfF on the painter (classified as
+  // an asymmetrical/non-sliding rider) would falsely trigger discovered-check detection
+  // whenever the painter advances adjacent to the enemy king.
   if (  type_of(m) != ARCHER_SHOT && type_of(m) != PAINTER_PAINT
       && ((type_of(m) != DROP && (blockers_for_king(~sideToMove) & from)) || (non_sliding_riders() & pieces(sideToMove)))
-      && attackers_to(square<KING>(~sideToMove), occupied, sideToMove, janggiCannons) & occupied)
+      && attackers_to(square<KING>(~sideToMove), occupied, sideToMove, janggiCannons) & occupied & ~square_bb(to))
       return true;
 
   // Is there a check by gated pieces?
