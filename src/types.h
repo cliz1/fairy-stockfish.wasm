@@ -273,6 +273,7 @@ enum MoveType : int {
   SWAP               = 8 << (2 * SQUARE_BITS),
   ARCHER_SHOT    = 9 << (2 * SQUARE_BITS),
   PAINTER_PAINT  = 10 << (2 * SQUARE_BITS),
+  SWAP_PROMOTION = 11 << (2 * SQUARE_BITS),
 };
 
 constexpr int MOVE_TYPE_BITS = 4;
@@ -807,7 +808,9 @@ inline int from_to(Move m) {
 }
 
 inline PieceType promotion_type(Move m) {
-  return type_of(m) == PROMOTION ? PieceType((m >> (2 * SQUARE_BITS + MOVE_TYPE_BITS)) & (PIECE_TYPE_NB - 1)) : NO_PIECE_TYPE;
+  return (type_of(m) == PROMOTION || type_of(m) == SWAP_PROMOTION)
+         ? PieceType((m >> (2 * SQUARE_BITS + MOVE_TYPE_BITS)) & (PIECE_TYPE_NB - 1))
+         : NO_PIECE_TYPE;
 }
 
 inline PieceType gating_type(Move m) {

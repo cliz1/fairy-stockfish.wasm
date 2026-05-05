@@ -487,8 +487,22 @@ namespace {
                 Bitboard quiets  = pos.moves_from(Us, type_of(our_wizard), from);
                 Bitboard reachable = attacks | quiets;
                 Bitboard swapTargets = reachable & pos.pieces(Us) & ~square_bb(from);
-                while (swapTargets)
-                    *moveList++ = make<SWAP>(from, pop_lsb(swapTargets));
+                while (swapTargets) {
+                    Square target = pop_lsb(swapTargets);
+                    // Wizard on back rank swapping with a pawn: pawn lands on back rank and promotes
+                    if (   type_of(pos.piece_on(target)) == PAWN
+                        && relative_rank(Us, from, pos.max_rank()) == pos.max_rank())
+                    {
+                        for (PieceSet ps = pos.promotion_piece_types(Us); ps; )
+                        {
+                            PieceType pt = pop_msb(ps);
+                            if (!pos.promotion_limit(pt) || pos.promotion_limit(pt) > pos.count(Us, pt))
+                                *moveList++ = make<SWAP_PROMOTION>(from, target, pt);
+                        }
+                    }
+                    else
+                        *moveList++ = make<SWAP>(from, target);
+                }
             }
         }
     }

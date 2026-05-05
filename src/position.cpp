@@ -1265,7 +1265,7 @@ bool Position::legal(Move m) const {
   }
 
     // Swap moves: check that our king is not left in check after the swap
-    if (type_of(m) == SWAP && count<KING>(us))
+    if ((type_of(m) == SWAP || type_of(m) == SWAP_PROMOTION) && count<KING>(us))
     {
         Piece friendly = piece_on(to);
         // After swap: wizard on 'to', friendly on 'from'
@@ -1629,6 +1629,21 @@ bool Position::gives_check(Move m) const {
         return (blockers_for_king(~sideToMove) & from)
             && attackers_to(square<KING>(~sideToMove), b, sideToMove) & b;
     }
+    case SWAP_PROMOTION:
+    {
+        Bitboard b = pieces(); // occupied squares unchanged after swap
+        Square ksq = square<KING>(~sideToMove);
+        PieceType promPt = promotion_type(m);
+        // Direct check from wizard at 'to'
+        if (check_squares(type_of(moved_piece(m))) & to)
+            return true;
+        // Direct check from promoted piece at 'from' (back rank)
+        if (attacks_bb(sideToMove, promPt, from, b) & ksq)
+            return true;
+        // Discovered check from wizard vacating 'from'
+        return (blockers_for_king(~sideToMove) & from)
+            && attackers_to(ksq, b, sideToMove) & b;
+    }
     case ARCHER_SHOT:
     {
         // Archer stays put, target piece is removed
@@ -1827,6 +1842,7 @@ void Position::do_move(Move m, StateInfo& newSt, bool givesCheck) {
       // - irreversible pawn/piece promotions
       // - irreversible pawn moves
       if (    type_of(m) == PROMOTION
+          || type_of(m) == SWAP_PROMOTION
           || (type_of(m) == PIECE_PROMOTION && !piece_demotion())
           || (    (var->nMoveRuleTypes[us] & type_of(pc))
               && !(PseudoMoves[0][us][type_of(pc)][to] & from)))
@@ -1962,6 +1978,30 @@ void Position::do_move(Move m, StateInfo& newSt, bool givesCheck) {
         remove_piece(to);
         put_piece(pc, to);
         put_piece(friendly, from);
+    }
+    else if (type_of(m) == SWAP_PROMOTION)
+    {
+        Piece pawn = piece_on(to);
+        PieceType promPt = promotion_type(m);
+        Piece promPiece = make_piece(us, promPt);
+        if (Eval::useNNUE)
+        {
+            dp.dirty_num = 3;
+            dp.piece[0] = pc;       dp.from[0] = from; dp.to[0] = to;    dp.handPiece[0] = NO_PIECE;
+            dp.piece[1] = pawn;     dp.from[1] = to;   dp.to[1] = SQ_NONE; dp.handPiece[1] = NO_PIECE;
+            dp.piece[2] = promPiece; dp.from[2] = SQ_NONE; dp.to[2] = from; dp.handPiece[2] = NO_PIECE;
+        }
+        // Wizard hash (from->to) already applied above; update pawn->promoted at from
+        k ^= Zobrist::psq[pawn][to] ^ Zobrist::psq[promPiece][from];
+        st->pawnKey ^= Zobrist::psq[pawn][to];
+        // Move wizard, remove pawn, place promoted piece
+        remove_piece(from);
+        remove_piece(to);
+        st->materialKey ^= Zobrist::psq[pawn][pieceCount[pawn]];
+        put_piece(pc, to);
+        put_piece(promPiece, from);
+        st->materialKey ^= Zobrist::psq[promPiece][pieceCount[promPiece] - 1];
+        st->nonPawnMaterial[us] += PieceValue[MG][promPiece];
     }
     else
     {
@@ -2467,6 +2507,16 @@ void Position::undo_move(Move m) {
         remove_piece(from);
         put_piece(wizard, from);
         put_piece(friendly, to);
+    }
+    else if (type_of(m) == SWAP_PROMOTION)
+    {
+        // Restore wizard to 'from', pawn to 'to'
+        Piece wizard = piece_on(to);
+        Piece pawn = make_piece(us, PAWN);
+        remove_piece(to);
+        remove_piece(from);
+        put_piece(wizard, from);
+        put_piece(pawn, to);
     }
     else if (type_of(m) == ARCHER_SHOT)
     {
