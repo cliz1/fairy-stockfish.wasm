@@ -617,6 +617,34 @@ namespace {
         }
     }
 
+    // Royal Painter: queen-range paint moves (piece stays at 'from'; target becomes our color)
+    {
+        std::string ptc = pos.piece_to_char();
+        std::size_t oidx = ptc.find('O');
+        if (oidx != std::string::npos) {
+            Piece white_rp = Piece(oidx);
+            Piece black_rp = Piece(ptc.find('o'));
+            Piece our_rp   = (Us == WHITE) ? white_rp : black_rp;
+            Square wetSq   = pos.state()->wetPaintSquare;
+            Bitboard rps   = pos.pieces(Us);
+            while (rps) {
+                Square from = pop_lsb(rps);
+                if (pos.piece_on(from) != our_rp)
+                    continue;
+                // Enemy pieces visible along queen rays (blocking by any piece applies)
+                Bitboard paintTargets = attacks_bb(Us, QUEEN, from, pos.pieces())
+                                        & pos.pieces(~Us)
+                                        & ~pos.pieces(~Us, KING);
+                if (wetSq != SQ_NONE)
+                    paintTargets &= ~square_bb(wetSq);
+                while (paintTargets) {
+                    Square target = pop_lsb(paintTargets);
+                    *moveList++ = make<PAINTER_PAINT>(from, target);
+                }
+            }
+        }
+    }
+
     return moveList;
   }
 

@@ -1321,6 +1321,18 @@ bool Position::legal(Move m) const {
                 && file_of(from) != file_of(to))
                 return false;
         }
+
+        // Royal painter pieces (char 'O'/'o') use Q Betza for attack-table coverage, but
+        // may never physically capture — only PAINTER_PAINT is legal for occupied targets.
+        std::size_t oidx = ptc.find('O');
+        if (oidx != std::string::npos)
+        {
+            PieceType royalPainterType = type_of(Piece(oidx));
+            if (type_of(moved_piece(m)) == royalPainterType
+                && type_of(m) == NORMAL
+                && !empty(to))
+                return false;
+        }
     }
 
     // Painter legality: occupied bitboard is unchanged (piece stays on target square,
