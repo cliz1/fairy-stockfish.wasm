@@ -666,6 +666,10 @@ ExtMove* generate<LEGAL>(const Position& pos, ExtMove* moveList) {
 // Instead of computing make_piece, just compare Piece directly
 Piece white_snare = idx_white != std::string::npos ? Piece(idx_white) : NO_PIECE;
 Piece black_snare = idx_black != std::string::npos ? Piece(idx_black) : NO_PIECE;
+  std::size_t idx_rs_white = ptc.find('L');
+  std::size_t idx_rs_black = ptc.find('l');
+Piece white_rolling_snare = idx_rs_white != std::string::npos ? Piece(idx_rs_white) : NO_PIECE;
+Piece black_rolling_snare = idx_rs_black != std::string::npos ? Piece(idx_rs_black) : NO_PIECE;
 
   ExtMove* cur = moveList;
   moveList = pos.checkers() ? generate<EVASIONS    >(pos, moveList)
@@ -716,6 +720,27 @@ Piece black_snare = idx_black != std::string::npos ? Piece(idx_black) : NO_PIECE
           if (immobilized) {
               *cur = (--moveList)->move;
               continue;
+          }
+      }
+
+      // Rolling snare immobilization check (immobilizes all 4 orthogonal neighbors)
+      if (white_rolling_snare != NO_PIECE || black_rolling_snare != NO_PIECE) {
+          Square from = from_sq(*cur);
+          Color us = color_of(pos.piece_on(from));
+          Piece enemy_rs = (us == WHITE) ? black_rolling_snare : white_rolling_snare;
+
+          if (enemy_rs != NO_PIECE) {
+              File from_file = file_of(from);
+              Rank from_rank = rank_of(from);
+              bool immobilized = false;
+              if (!immobilized && from_file > FILE_A && pos.piece_on(from + WEST)  == enemy_rs) immobilized = true;
+              if (!immobilized && from_file < FILE_H && pos.piece_on(from + EAST)  == enemy_rs) immobilized = true;
+              if (!immobilized && from_rank < RANK_8  && pos.piece_on(from + NORTH) == enemy_rs) immobilized = true;
+              if (!immobilized && from_rank > RANK_1  && pos.piece_on(from + SOUTH) == enemy_rs) immobilized = true;
+              if (immobilized) {
+                  *cur = (--moveList)->move;
+                  continue;
+              }
           }
       }
 

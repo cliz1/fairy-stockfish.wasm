@@ -1090,6 +1090,25 @@ bool Position::legal(Move m) const {
           if (fwd_rank >= RANK_1 && fwd_rank <= RANK_8 && piece_on(from + forward) == enemy_snare)
               return false;
       }
+
+      // Rolling snare immobilization check (all 4 orthogonal directions)
+      std::size_t idx_rs_white = ptc.find('L');
+      std::size_t idx_rs_black = ptc.find('l');
+      Piece white_rs = idx_rs_white != std::string::npos ? Piece(idx_rs_white) : NO_PIECE;
+      Piece black_rs = idx_rs_black != std::string::npos ? Piece(idx_rs_black) : NO_PIECE;
+
+      if (white_rs != NO_PIECE || black_rs != NO_PIECE) {
+          Piece enemy_rs = (us == WHITE) ? black_rs : white_rs;
+          File from_file = file_of(from);
+          Rank from_rank = rank_of(from);
+
+          if (enemy_rs != NO_PIECE) {
+              if (from_file > FILE_A && piece_on(from + WEST)  == enemy_rs) return false;
+              if (from_file < FILE_H && piece_on(from + EAST)  == enemy_rs) return false;
+              if (from_rank < RANK_8  && piece_on(from + NORTH) == enemy_rs) return false;
+              if (from_rank > RANK_1  && piece_on(from + SOUTH) == enemy_rs) return false;
+          }
+      }
   }
 
   // Illegal checks
