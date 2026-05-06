@@ -540,6 +540,11 @@ namespace {
                             break;
                         }
                         target = target + d;
+                        // Intermediate squares must be empty — any piece blocks the shot
+                        if (step < dist - 1 && (pos.pieces() & square_bb(target))) {
+                            valid = false;
+                            break;
+                        }
                     }
                     if (!valid) break;
                     // Only generate if target has an enemy piece
@@ -639,17 +644,25 @@ namespace {
             Piece our_snare   = (Us == WHITE) ? white_snare : black_snare;
             PieceType rollingSnareType = type_of(Piece(lidx));
 
+            // Snare moves: one step forward (mfW) or forward-diagonal (mfF)
+            Direction fwd      = (Us == WHITE) ? NORTH      : SOUTH;
+            Direction fwdLeft  = (Us == WHITE) ? NORTH_WEST : SOUTH_EAST;
+            Direction fwdRight = (Us == WHITE) ? NORTH_EAST : SOUTH_WEST;
+
             Bitboard snares = pos.pieces(Us);
             while (snares) {
                 Square from = pop_lsb(snares);
                 if (pos.piece_on(from) != our_snare)
                     continue;
-                // All squares the snare can move to (from its Betza)
-                Bitboard dests = pos.moves_from(Us, type_of(our_snare), from)
-                                 & ~pos.pieces()
-                                 & pos.board_bb();
-                while (dests) {
-                    Square to = pop_lsb(dests);
+                for (Direction d : {fwd, fwdLeft, fwdRight}) {
+                    File f = file_of(from);
+                    if (d == NORTH_WEST && f == FILE_A) continue;
+                    if (d == NORTH_EAST && f == FILE_H) continue;
+                    if (d == SOUTH_WEST && f == FILE_A) continue;
+                    if (d == SOUTH_EAST && f == FILE_H) continue;
+                    Square to = from + d;
+                    if (!is_ok(to) || !pos.empty(to) || !(pos.board_bb() & square_bb(to)))
+                        continue;
                     if (relative_rank(Us, to, pos.max_rank()) == pos.max_rank())
                         *moveList++ = make<PROMOTION>(from, to, rollingSnareType);
                 }

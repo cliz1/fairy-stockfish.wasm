@@ -1391,6 +1391,35 @@ bool Position::legal(Move m) const {
 
   Bitboard occupied = (type_of(m) != DROP ? pieces() ^ from : pieces()) | to;
 
+  // Archer shot legality: king must not be in archer shot range after this move.
+  // We walk outward from the post-move king square in each diagonal; an enemy archer
+  // at distance 2 or 3 with clear intermediate squares means the move is illegal.
+  {
+      std::string ptc_local = piece_to_char();
+      std::size_t xidx = ptc_local.find('X');
+      if (xidx != std::string::npos && count<KING>(us)) {
+          Piece enemy_archer = (us == WHITE) ? Piece(ptc_local.find('x')) : Piece(xidx);
+          Square ksq_after = type_of(moved_piece(m)) == KING ? to : square<KING>(us);
+          for (Direction d : {NORTH_EAST, NORTH_WEST, SOUTH_EAST, SOUTH_WEST}) {
+              Square sq = ksq_after;
+              for (int dist = 1; dist <= 3; dist++) {
+                  if (   (d == NORTH_EAST && (file_of(sq) == max_file() || rank_of(sq) == max_rank()))
+                      || (d == NORTH_WEST && (file_of(sq) == FILE_A    || rank_of(sq) == max_rank()))
+                      || (d == SOUTH_EAST && (file_of(sq) == max_file() || rank_of(sq) == RANK_1))
+                      || (d == SOUTH_WEST && (file_of(sq) == FILE_A    || rank_of(sq) == RANK_1)))
+                      break;
+                  sq = sq + d;
+                  // An enemy archer here (and not captured by this move) is a threat
+                  if (dist >= 2 && piece_on(sq) == enemy_archer && sq != to)
+                      return false;
+                  // Any occupied intermediate square blocks further shots in this direction
+                  if (dist < 3 && (occupied & square_bb(sq)))
+                      break;
+              }
+          }
+      }
+  }
+
   // Flying general rule and bikjang
   // In case of bikjang passing is always allowed, even when in check
   if (st->bikjang && is_pass(m))
@@ -1774,9 +1803,10 @@ void Position::do_move(Move m, StateInfo& newSt, bool givesCheck) {
   Piece captured = piece_on(type_of(m) == EN_PASSANT ? capture_square(to) 
                          : type_of(m) == ARCHER_SHOT ? archer_target(m)
                          : to);
-  if (to == from && type_of(m) != ARCHER_SHOT)
+  if (to == from || type_of(m) == SWAP || type_of(m) == SWAP_PROMOTION)
   {
-      assert((type_of(m) == PROMOTION && sittuyin_promotion()) || (is_pass(m) && (pass(us) || var->wallOrMove )));
+      assert(type_of(m) == SWAP || type_of(m) == SWAP_PROMOTION
+             || (type_of(m) == PROMOTION && sittuyin_promotion()) || (is_pass(m) && (pass(us) || var->wallOrMove )));
       captured = NO_PIECE;
   }
   Square captureSq = type_of(m) == ARCHER_SHOT ? archer_target(m) : to;

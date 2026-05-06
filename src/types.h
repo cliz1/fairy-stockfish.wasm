@@ -822,12 +822,11 @@ inline Square gating_square(Move m) {
 }
 
 inline Move make_archer_shot(Square from, Square target) {
-    return Move((target << (2 * SQUARE_BITS + MOVE_TYPE_BITS + PIECE_TYPE_BITS)) 
-                + ARCHER_SHOT + (from << SQUARE_BITS) + from);
+    return Move(ARCHER_SHOT + (from << SQUARE_BITS) + target);
 }
 
 inline Square archer_target(Move m) {
-    return Square((m >> (2 * SQUARE_BITS + MOVE_TYPE_BITS + PIECE_TYPE_BITS)) & SQUARE_BIT_MASK);
+    return to_sq(m);
 }
 
 inline bool is_gating(Move m) {
