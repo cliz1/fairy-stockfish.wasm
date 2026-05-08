@@ -2055,23 +2055,25 @@ void Position::do_move(Move m, StateInfo& newSt, bool givesCheck) {
     }
     else if (type_of(m) == SWAP_PROMOTION)
     {
-        Piece pawn = piece_on(to);
+        Piece original = piece_on(to);   // pawn / snare / painter being promoted
         PieceType promPt = promotion_type(m);
         Piece promPiece = make_piece(us, promPt);
         if (Eval::useNNUE)
         {
             dp.dirty_num = 3;
-            dp.piece[0] = pc;       dp.from[0] = from; dp.to[0] = to;    dp.handPiece[0] = NO_PIECE;
-            dp.piece[1] = pawn;     dp.from[1] = to;   dp.to[1] = SQ_NONE; dp.handPiece[1] = NO_PIECE;
+            dp.piece[0] = pc;        dp.from[0] = from; dp.to[0] = to;      dp.handPiece[0] = NO_PIECE;
+            dp.piece[1] = original;  dp.from[1] = to;   dp.to[1] = SQ_NONE; dp.handPiece[1] = NO_PIECE;
             dp.piece[2] = promPiece; dp.from[2] = SQ_NONE; dp.to[2] = from; dp.handPiece[2] = NO_PIECE;
         }
-        // Wizard hash (from->to) already applied above; update pawn->promoted at from
-        k ^= Zobrist::psq[pawn][to] ^ Zobrist::psq[promPiece][from];
-        st->pawnKey ^= Zobrist::psq[pawn][to];
-        // Move wizard, remove pawn, place promoted piece
+        k ^= Zobrist::psq[original][to] ^ Zobrist::psq[promPiece][from];
+        if (type_of(original) == PAWN)
+            st->pawnKey ^= Zobrist::psq[original][to];
+        else
+            st->nonPawnMaterial[us] -= PieceValue[MG][original];
+        st->promotionPawn = original;   // saved for undo
         remove_piece(from);
         remove_piece(to);
-        st->materialKey ^= Zobrist::psq[pawn][pieceCount[pawn]];
+        st->materialKey ^= Zobrist::psq[original][pieceCount[original]];
         put_piece(pc, to);
         put_piece(promPiece, from);
         st->materialKey ^= Zobrist::psq[promPiece][pieceCount[promPiece] - 1];
@@ -2584,13 +2586,12 @@ void Position::undo_move(Move m) {
     }
     else if (type_of(m) == SWAP_PROMOTION)
     {
-        // Restore wizard to 'from', pawn to 'to'
+        // Restore wizard to 'from', original piece (pawn/snare/painter) to 'to'
         Piece wizard = piece_on(to);
-        Piece pawn = make_piece(us, PAWN);
         remove_piece(to);
         remove_piece(from);
         put_piece(wizard, from);
-        put_piece(pawn, to);
+        put_piece(st->promotionPawn, to);
     }
     else if (type_of(m) == ARCHER_SHOT)
     {

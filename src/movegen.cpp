@@ -487,11 +487,20 @@ namespace {
                 Bitboard quiets  = pos.moves_from(Us, type_of(our_wizard), from);
                 Bitboard reachable = attacks | quiets;
                 Bitboard swapTargets = reachable & pos.pieces(Us) & ~square_bb(from);
+                // Look up special-promotion piece pairs once per wizard
+                std::size_t sidx2 = ptc.find('S'), lidx2 = ptc.find('L');
+                std::size_t yidx2 = ptc.find('Y'), oidx2 = ptc.find('O');
+                PieceType snareType       = sidx2 != std::string::npos ? type_of(Piece(sidx2)) : NO_PIECE_TYPE;
+                PieceType rollingSnareType= lidx2 != std::string::npos ? type_of(Piece(lidx2)) : NO_PIECE_TYPE;
+                PieceType painterType     = yidx2 != std::string::npos ? type_of(Piece(yidx2)) : NO_PIECE_TYPE;
+                PieceType royalPainterType= oidx2 != std::string::npos ? type_of(Piece(oidx2)) : NO_PIECE_TYPE;
+
                 while (swapTargets) {
                     Square target = pop_lsb(swapTargets);
-                    // Wizard on back rank swapping with a pawn: pawn lands on back rank and promotes
-                    if (   type_of(pos.piece_on(target)) == PAWN
-                        && relative_rank(Us, from, pos.max_rank()) == pos.max_rank())
+                    PieceType targetType = type_of(pos.piece_on(target));
+                    bool onBackRank = relative_rank(Us, from, pos.max_rank()) == pos.max_rank();
+
+                    if (onBackRank && targetType == PAWN)
                     {
                         for (PieceSet ps = pos.promotion_piece_types(Us); ps; )
                         {
@@ -500,6 +509,10 @@ namespace {
                                 *moveList++ = make<SWAP_PROMOTION>(from, target, pt);
                         }
                     }
+                    else if (onBackRank && targetType == snareType && rollingSnareType != NO_PIECE_TYPE)
+                        *moveList++ = make<SWAP_PROMOTION>(from, target, rollingSnareType);
+                    else if (onBackRank && targetType == painterType && royalPainterType != NO_PIECE_TYPE)
+                        *moveList++ = make<SWAP_PROMOTION>(from, target, royalPainterType);
                     else
                         *moveList++ = make<SWAP>(from, target);
                 }
