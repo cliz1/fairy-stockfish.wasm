@@ -1360,6 +1360,87 @@ namespace {
         score -= make_score(200, 200) * popcount(unstable);
     }
 
+    // Archer: bonus for each enemy piece currently in shooting range (2-3 diagonal squares,
+    // line of sight unobstructed). Reflects the archer's special-ability value dynamically.
+    {
+        std::string ptc = pos.piece_to_char();
+        std::size_t xidx = ptc.find('X');
+        if (xidx != std::string::npos) {
+            Piece our_archer = (Us == WHITE) ? Piece(xidx) : Piece(ptc.find('x'));
+            Bitboard archers = pos.pieces(Us);
+            while (archers) {
+                Square from = pop_lsb(archers);
+                if (pos.piece_on(from) != our_archer) continue;
+                int targets = 0;
+                for (Direction d : {NORTH_EAST, NORTH_WEST, SOUTH_EAST, SOUTH_WEST}) {
+                    for (int dist = 2; dist <= 3; dist++) {
+                        Square sq = from;
+                        bool valid = true;
+                        for (int step = 0; step < dist; step++) {
+                            File f = file_of(sq);
+                            Rank r = rank_of(sq);
+                            if (   (d == NORTH_EAST && (f == FILE_H || r == RANK_8))
+                                || (d == NORTH_WEST && (f == FILE_A || r == RANK_8))
+                                || (d == SOUTH_EAST && (f == FILE_H || r == RANK_1))
+                                || (d == SOUTH_WEST && (f == FILE_A || r == RANK_1))) {
+                                valid = false; break;
+                            }
+                            sq = sq + d;
+                            if (step < dist - 1 && (pos.pieces() & square_bb(sq))) {
+                                valid = false; break;
+                            }
+                        }
+                        if (!valid) break;
+                        if (pos.pieces(~Us) & square_bb(sq))
+                            targets++;
+                    }
+                }
+                score += make_score(30, 20) * targets;
+            }
+        }
+    }
+
+    // Painter: bonus per paintable enemy piece (diagonal adjacent, not wet, not king),
+    // plus a small advancement bonus scaled like a pawn.
+    {
+        std::string ptc = pos.piece_to_char();
+        std::size_t yidx = ptc.find('Y');
+        if (yidx != std::string::npos) {
+            Piece our_painter = (Us == WHITE) ? Piece(yidx) : Piece(ptc.find('y'));
+            Direction paintLeft  = (Us == WHITE) ? NORTH_WEST : SOUTH_EAST;
+            Direction paintRight = (Us == WHITE) ? NORTH_EAST : SOUTH_WEST;
+            Square wetSq = pos.state()->wetPaintSquare;
+            Bitboard painters = pos.pieces(Us);
+            while (painters) {
+                Square from = pop_lsb(painters);
+                if (pos.piece_on(from) != our_painter) continue;
+                int advance = (Us == WHITE) ? int(rank_of(from)) - int(RANK_2)
+                                           : int(RANK_7) - int(rank_of(from));
+                score += make_score(5, 10) * std::max(advance, 0);
+                int targets = 0;
+                for (Direction d : {paintLeft, paintRight}) {
+                    File f = file_of(from);
+                    if (d == NORTH_WEST && f == FILE_A) continue;
+                    if (d == NORTH_EAST && f == FILE_H) continue;
+                    if (d == SOUTH_WEST && f == FILE_A) continue;
+                    if (d == SOUTH_EAST && f == FILE_H) continue;
+                    Square target = from + d;
+                    if (!is_ok(target)) continue;
+                    if ((pos.pieces(~Us) & square_bb(target))
+                        && type_of(pos.piece_on(target)) != KING
+                        && target != wetSq)
+                        targets++;
+                    if (pos.ep_squares() & square_bb(target)) {
+                        Square epTarget = pos.capture_square(target);
+                        if (epTarget != wetSq && type_of(pos.piece_on(epTarget)) != KING)
+                            targets++;
+                    }
+                }
+                score += make_score(45, 30) * targets;
+            }
+        }
+    }
+
     if (T)
         Trace::add(VARIANT, Us, score);
 
