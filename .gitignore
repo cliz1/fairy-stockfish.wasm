@@ -41,5 +41,3 @@ src/*.txt
 # IDEs
 .vscode
 .idea
-
-rebuild.sh
